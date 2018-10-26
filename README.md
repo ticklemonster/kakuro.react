@@ -1,6 +1,5 @@
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
-
-## Kakoru Puzzle Helper
+# Kakoru Puzzle Helper
+## WARNING! - This is a work in progress with lots to do!
 
 This app provides a simple web-based Kakuro puzzle that you can solve interactively.
 It is currently a work in progress, porting from a working plain-old-javascript implementation to React.js (mostly for my own edification).
@@ -18,3 +17,4 @@ It will currently:
 * allow loading/entry of new puzzles from a set of clues (including resizing)
 * port the editing view to allow direct entry of a puzzle (clue sets created in the original Javascript version should work in this version too)
 
+This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
