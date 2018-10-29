@@ -147,7 +147,15 @@ class App extends Component {
     }
 
     this.state = this.parseClues(cluearray);
-    console.debug('App: initialised with state=', this.state);
+    // set an initial mask for each cell...
+    this.state.cells.forEach( c => c.mask = this.calcMaskFor(c, this.state.cells, this.state.clues) );
+
+
+    Object.assign(this.state, {
+      showClueHints: true,
+      showValidCells: true,
+      showCellHints: false,
+    });
 
     this.onUpdateCellValue = this.onUpdateCellValue.bind(this);
   }
@@ -194,46 +202,99 @@ class App extends Component {
         let cell = { key: `${ch}${r}`, index: (r-1) * cols + c, clues: [], value: null };
         for (let l of clues) {
           if (r >= l.R1 && r <= l.R2 && ch >= l.C1 && ch <= l.C2) {
-            cell.clues.push(l);
+            cell.clues.push(l.name);
           }
         }
         cells.push(cell);
       }
     }
 
-    // set an initial mask for each cell...
-    for (const cell of cells.filter(e => e.clues.length > 0)) {
-      let mask = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-      for (const clue of cell.clues) {
-        let cluemask = clue.combos.reduce( (prev, curr) => prev + curr, '' );
-        mask = mask.filter (e => cluemask.indexOf(e) >= 0);
-      }
-      
-      cell.mask = mask;
-      // console.debug('MASK for ' + cell.key + '=' + mask + ' (', cell.clues[0].combos, cell.clues[1].combos);
-    } 
-
     // return a potential new state
     return { rows, cols, cells, clues };
   }
 
-  onUpdateCellValue (cell, value) {
-    if (cell.value === value) return; // no change
+  //
+  // Work out all possibilities by intersecting possible values from both clues for a cell
+  //
+  calcMaskFor (cell, allCells, allClues) {
+    if (cell.clues.length === 0) return null;
+    if (cell.value !== null) return [cell.value];
 
-    console.log(`Change ${cell.key} to ${value}`);
-    let newCells = this.state.cells.slice();
-    for (const c of newCells) {
-      if (c.key === cell.key) c.value = value;
-    };
+    let mask = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    for (const cluename of cell.clues) {
+      const clue = allClues.find(c => c.name === cluename);
+
+      const fromIdx = (clue.R1 - 1) * this.state.cols + clue.C1.charCodeAt(0) - 65;
+      const toIdx = (clue.R2 - 1) * this.state.cols + clue.C2.charCodeAt(0) - 65;
+      const stepIdx = (clue.R1 === clue.R2) ? 1 : this.state.cols;
+      let placedValues = [];
+      let validCombos = clue.combos.slice();  // copy the list of possbile combos...
+
+      // find the values that have been used and the combos that remain...
+      for (let i = fromIdx; i <= toIdx; i += stepIdx) { 
+        // only keep combos that include these values
+        if (allCells[i].value != null) {
+          placedValues.push( allCells[i].value );
+          validCombos = validCombos.filter(c => c.indexOf(allCells[i].value) >= 0);
+        }
+      }
+
+      // remove the used valus from the remaining combos to come up with the remaining possible values
+      let remainingVals = [];
+      for (let c of validCombos) {
+        remainingVals = [...remainingVals, ...(c.split('').filter(ch => placedValues.indexOf(ch) < 0))];
+      }
+
+      mask = mask.filter (e => remainingVals.indexOf(e) >= 0);
+    }
+
+    return mask;
+  }
+
+  //
+  // save the change to a cell value and recalculate the possible values for adjacent cells
+  //
+  onUpdateCellValue (cell, newValue) {
+    const oldValue = cell.value;
+
+    if (oldValue === newValue) return; // no change
+
+    console.log(`Change ${cell.key} from ${cell.value} to ${newValue}`);
+
+    // Updating will affect the cells in the game. 
+    // Take a copy of them and update the copy (try to maintain immutable state)
+    const newCells = this.state.cells.slice();
+
+    // apply the updated value and reset the mask if clearing the cell
+    const updatedCell = newCells.find(c => c.key === cell.key);
+    updatedCell.value = newValue;
+    if (newValue === null) 
+      updatedCell.mask = this.calcMaskFor(updatedCell, newCells, this.state.clues);
     
-    // TODO: Transcribe the computations that update cell masks
-    
-    // check cell validity after the change...
-    this.validateCells(newCells, this.state.clues);
+    // find the clues that relate to this cell
+    const affectedClues = cell.clues.map(cname => this.state.clues.find(c => c.name === cname));
+
+    // for each clue 
+    // - find what values are already applied to the clue and see which combinations remain
+    // - update cells in the clue based on the update
+    for (const clue of affectedClues) {
+      const fromIdx = (clue.R1 - 1) * this.state.cols + clue.C1.charCodeAt(0) - 65;
+      const toIdx = (clue.R2 - 1) * this.state.cols + clue.C2.charCodeAt(0) - 65;
+      const stepIdx = (clue.R1 === clue.R2) ? 1 : this.state.cols;
+
+      for (let i = fromIdx; i <= toIdx; i += stepIdx) { 
+        newCells[i].mask = this.calcMaskFor(newCells[i], newCells, this.state.clues);
+      }
+
+    }
+   
+    // Validate only affected clues
+    this.validateCells (newCells, affectedClues);
 
     // ... and update the state
     this.setState({ cells: newCells });
   }
+
 
   validateCells (cells, clues) {
     // start by setting all cells to valid...
@@ -279,6 +340,7 @@ class App extends Component {
 
   } // validateCells()
 
+
   onSetOption (name, value) {
     let newstate = {};
     newstate[name] = value;
@@ -300,15 +362,15 @@ class App extends Component {
         <div className="App-content">
           <div style={{ display: 'flex', flexDirection: 'row' }}>
             Hints: 
-            <input type="checkbox" className="optionButton" id="clueHints" 
+            <input type="checkbox" className="optionButton" id="clueHints" checked={this.state.showClueHints}
               onChange={(e) => this.onSetOption('showClueHints', e.target.checked)}/>
             <label htmlFor="clueHints">Clue Hints</label>
 
-            <input type="checkbox" className="optionButton" id="cellValid" 
+            <input type="checkbox" className="optionButton" id="cellValid" checked={this.state.showValidCells}
               onChange={(e) => this.onSetOption('showValidCells', e.target.checked)}/>
             <label htmlFor="cellValid">Cell Validation Hints</label>
             
-            <input type="checkbox" className="optionButton" id="cellHints"
+            <input type="checkbox" className="optionButton" id="cellHints" checked={this.state.showCellHints}
                 onChange={(e) => this.onSetOption('showCellHints', e.target.checked)}/>
             <label htmlFor="cellHints">Cell Value Hints</label>
           </div>
