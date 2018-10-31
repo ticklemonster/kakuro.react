@@ -29,6 +29,7 @@ export default class PuzzleGrid extends Component {
             highlightInvalid={this.props.showValidCells} 
             showValues={this.props.showCellHints}
             onChange={(v) => this.props.onCellUpdate(cell, v)}
+            onNavigate={this.props.onNavigate}
           />);
         } else {
           // this is a clue or blank 
@@ -50,7 +51,12 @@ export default class PuzzleGrid extends Component {
       console.log('SOLVED!!');
     }
 
-    return (<div className='puzzleGrid'>{rval}</div>);
+    const styleOverride = {
+      gridTemplateRows: `repeat(${this.props.rows + 1}, 3em)`,
+      gridTemplateColumns: `repeat(${this.props.cols + 1}, 3em)`
+    }
+
+    return (<div className='puzzleGrid' style={styleOverride}>{rval}</div>);
   }
 }
 

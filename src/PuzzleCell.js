@@ -11,21 +11,30 @@ export default class PuzzleCell extends Component {
       this.setState({ active: !this.state.active });
     }
   
-    onKeyPressed(key) {
+    onKeyDown(event) {
       if (!this.state.active) return;
   
-      // console.log(this.props.cell.key, key);
-      if (key >= '0' && key <= '9')
+      const key = event.key;
+      if (key >= '0' && key <= '9') 
         this.setState({ value: key });
   
-      if (key === 'Backspace' || key === 'Delete')
+      else if (key === 'Backspace' || key === 'Delete')
         this.setState({ value: null });
   
-      if (key === 'Enter')
+      else if (key === 'Enter')
         this.acceptChanges();
   
-      if (key === 'Escape')
+      else if (key === 'Escape')
         this.rejectChanges();
+
+      else if ('|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|'.indexOf(key) > 0 && this.props.onNavigate) {
+        this.props.onNavigate(key);
+        event.preventDefault(true);
+        return false; // cancel default behaviour
+      }
+      
+      // else 
+      //   console.debug({key});
     }
   
     acceptChanges() {
@@ -62,7 +71,7 @@ export default class PuzzleCell extends Component {
       return (
         <div className={classes}
           tabIndex={this.props.cell.index}
-          onKeyDown={(e) => this.onKeyPressed(e.key)}
+          onKeyDown={(e) => this.onKeyDown(e)}
           onFocus={() => this.setState({ active: true })}
           onBlur={() => { this.acceptChanges(); this.setState({ active: false }) }}
         >{content}</div>);

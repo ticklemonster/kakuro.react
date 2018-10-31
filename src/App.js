@@ -7,6 +7,7 @@ import './App.css';
 import PuzzleGrid from './PuzzleGrid';
 
 const DEFAULT_CLUES = 'B1:B6=37;C1:C2=5;D1:D3=17;E1:E4=12;H1:H2=16;I1:I2=10;A2:A5=27;G2:G6=32;F3:F5=23;C4:C8=31;H4:H9=30;D5:D7=8;I5:I8=29;E6:E9=10;F7:F9=22;A8:A9=8;B8:B9=15;G8:G9=17;B1:E1=22;H1:I1=11;A2:E2=16;G2:I2=23;A3:B3=16;D3:G3=12;A4:C4=23;E4:H4=27;A5:D5=29;F5:I5=29;B6:E6=12;G6:I6=24;C7:F7=13;H7:I7=12;A8:C8=23;E8:I8=24;A9:B9=8;E9:H9=25'
+
 const CLUE_RE = /([A-Z]+)([1-9][0-9]*):([A-Z]+)([1-9][0-9]*)=([0-9]+)/;
 const CLUE_COMBINATIONS = new Map([
   ['2.3',['12']],
@@ -147,9 +148,6 @@ class App extends Component {
     }
 
     this.state = this.parseClues(cluearray);
-    // set an initial mask for each cell...
-    this.state.cells.forEach( c => c.mask = this.calcMaskFor(c, this.state.cells, this.state.clues) );
-
 
     Object.assign(this.state, {
       showClueHints: true,
@@ -158,6 +156,7 @@ class App extends Component {
     });
 
     this.onUpdateCellValue = this.onUpdateCellValue.bind(this);
+    this.onNavigate = this.onNavigate.bind(this);
   }
 
   parseClues (cluearray) {
@@ -187,8 +186,8 @@ class App extends Component {
         R2: Math.max(R1, R2),
         length: Math.abs(R2 - R1) + Math.abs(C2.charCodeAt(0) - C1.charCodeAt(0)) + 1,
       };
-      clue.combos = CLUE_COMBINATIONS.get(`${clue.length}.${clue.value}`);
-
+      clue.combos = CLUE_COMBINATIONS.get(`${clue.length}.${clue.value}`).slice();
+      clue.validCombos = [];
       clues.push(clue);
 
     }
@@ -209,6 +208,9 @@ class App extends Component {
       }
     }
 
+    cells.forEach( c => c.mask = this.calcMaskFor(c, cells, clues, rows, cols) );
+
+
     // return a potential new state
     return { rows, cols, cells, clues };
   }
@@ -216,7 +218,7 @@ class App extends Component {
   //
   // Work out all possibilities by intersecting possible values from both clues for a cell
   //
-  calcMaskFor (cell, allCells, allClues) {
+  calcMaskFor (cell, allCells, allClues, rows, cols) {
     if (cell.clues.length === 0) return null;
     if (cell.value !== null) return [cell.value];
 
@@ -224,9 +226,9 @@ class App extends Component {
     for (const cluename of cell.clues) {
       const clue = allClues.find(c => c.name === cluename);
 
-      const fromIdx = (clue.R1 - 1) * this.state.cols + clue.C1.charCodeAt(0) - 65;
-      const toIdx = (clue.R2 - 1) * this.state.cols + clue.C2.charCodeAt(0) - 65;
-      const stepIdx = (clue.R1 === clue.R2) ? 1 : this.state.cols;
+      const fromIdx = (clue.R1 - 1) * cols + clue.C1.charCodeAt(0) - 65;
+      const toIdx = (clue.R2 - 1) * cols + clue.C2.charCodeAt(0) - 65;
+      const stepIdx = (clue.R1 === clue.R2) ? 1 : cols;
       let placedValues = [];
       let validCombos = clue.combos.slice();  // copy the list of possbile combos...
 
@@ -238,6 +240,9 @@ class App extends Component {
           validCombos = validCombos.filter(c => c.indexOf(allCells[i].value) >= 0);
         }
       }
+
+      // !! NOTE - THIS IS MUTATING STATE AND SHOULD BE DONE SOME OTHER WAY !! //
+      clue.validCombos = validCombos.slice(); 
 
       // remove the used valus from the remaining combos to come up with the remaining possible values
       let remainingVals = [];
@@ -259,7 +264,7 @@ class App extends Component {
 
     if (oldValue === newValue) return; // no change
 
-    console.log(`Change ${cell.key} from ${cell.value} to ${newValue}`);
+    // console.log(`Change ${cell.key} from ${cell.value} to ${newValue}`);
 
     // Updating will affect the cells in the game. 
     // Take a copy of them and update the copy (try to maintain immutable state)
@@ -269,7 +274,7 @@ class App extends Component {
     const updatedCell = newCells.find(c => c.key === cell.key);
     updatedCell.value = newValue;
     if (newValue === null) 
-      updatedCell.mask = this.calcMaskFor(updatedCell, newCells, this.state.clues);
+      updatedCell.mask = this.calcMaskFor(updatedCell, newCells, this.state.clues, this.state.rows, this.state.cols);
     
     // find the clues that relate to this cell
     const affectedClues = cell.clues.map(cname => this.state.clues.find(c => c.name === cname));
@@ -283,7 +288,7 @@ class App extends Component {
       const stepIdx = (clue.R1 === clue.R2) ? 1 : this.state.cols;
 
       for (let i = fromIdx; i <= toIdx; i += stepIdx) { 
-        newCells[i].mask = this.calcMaskFor(newCells[i], newCells, this.state.clues);
+        newCells[i].mask = this.calcMaskFor(newCells[i], newCells, this.state.clues, this.state.rows, this.state.cols);
       }
 
     }
@@ -294,7 +299,6 @@ class App extends Component {
     // ... and update the state
     this.setState({ cells: newCells });
   }
-
 
   validateCells (cells, clues) {
     // start by setting all cells to valid...
@@ -340,11 +344,57 @@ class App extends Component {
 
   } // validateCells()
 
+  onNavigate (key) {
+    // Find the currently selected cell...
+    const selected = document.querySelector('.puzzleSpace.active');
+    const tabindex = selected.getAttribute('tabindex');
+    let nextTabindex = parseInt(tabindex);
+    let nextSelect = null;
+
+    if (key === 'ArrowLeft') {
+      while (nextSelect === null && nextTabindex > 0) {
+        nextTabindex--;
+        nextSelect = selected.parentElement.querySelector(`.puzzleSpace[tabindex="${nextTabindex}"]`);
+      }
+    }
+    else if (key === 'ArrowRight') {
+      while (nextSelect === null && nextTabindex < (this.state.rows * this.state.cols)) {
+        nextTabindex++;
+        nextSelect = selected.parentElement.querySelector(`.puzzleSpace[tabindex="${nextTabindex}"]`);
+      }    
+    }
+    else if (key === 'ArrowUp') {
+      while (nextSelect === null && nextTabindex > 0) {
+        nextTabindex -= this.state.cols;
+        nextSelect = selected.parentElement.querySelector(`.puzzleSpace[tabindex="${nextTabindex}"]`);
+      }       
+    }
+    else if (key === 'ArrowDown') {
+      while (nextSelect === null && nextTabindex < (this.state.rows * this.state.cols)) {
+        nextTabindex += this.state.cols;
+        nextSelect = selected.parentElement.querySelector(`.puzzleSpace[tabindex="${nextTabindex}"]`);
+      }        
+    }
+
+    if (nextSelect) {
+      nextSelect.focus();
+    }
+  }
 
   onSetOption (name, value) {
     let newstate = {};
     newstate[name] = value;
     this.setState( newstate );
+  }
+
+  loadFromClues (cluestring) {
+    try {
+      // use a made-up "key" value to force the state to completely reset.
+      let newstate = this.parseClues(cluestring.split(';'));
+      this.setState ({ ...newstate, key: new Date() });
+    } catch (err) {
+      alert('Clues could not be loaded.');
+    }
   }
 
   render() {
@@ -357,7 +407,7 @@ class App extends Component {
           </p>
         </header>
         <div className="App-content">
-          <PuzzleGrid {...this.state} onCellUpdate={this.onUpdateCellValue} />
+          <PuzzleGrid {...this.state} onCellUpdate={this.onUpdateCellValue} onNavigate={this.onNavigate}/>
         </div>
         <div className="App-content">
           <div style={{ display: 'flex', flexDirection: 'row' }}>
@@ -374,6 +424,26 @@ class App extends Component {
                 onChange={(e) => this.onSetOption('showCellHints', e.target.checked)}/>
             <label htmlFor="cellHints">Cell Value Hints</label>
           </div>
+        </div>
+        <div className="App-content">
+          <div>
+            Sample puzzles: 
+            <select defaultValue="" id="clueSelect">
+              <option value="" disabled>  </option>
+              <option value="B1:B5=21;C1:C2=5;D1:D5=34;B1:D1=7;A2:A4=9;E2:E4=8;A2:E2=16;A3:B3=6;D3:E3=8;A4:E4=34;C4:C5=16;B5:D5=22">5x5</option>
+              <option value="C1:C2=3;D1:D3=6;G1:G3=6;H1:H2=4;A2:A4=6;B2:B4=8;C1:D1=4;G1:H1=3;A2:D2=10;E3:E4=4;F3:F5=7;G2:H2=4;A3:B3=4;C4:C6=7;D3:G3=10;A4:C4=7;D5:D6=4;E4:F4=4;G5:G7=7;H5:H7=8;B6:B8=6;C5:D5=4;E6:E8=22;F5:H5=7;A7:A8=4;B6:E6=11;F7:F8=16;G6:H6=4;A7:B7=3;E7:H7=23;A8:B8=4;E8:F8=16">8x8</option>
+              <option value="A1:A2=9;B1:B3=24;C1:C4=14;F1:F2=8;G1:G3=12;H1:H5=31;A1:C1=11;E2:E8=41;F1:H1=24;I2:I5=12;A2:C2=24;D3:D5=24;E2:I2=23;B3:E3=28;G3:I3=9;A5:A8=30;B5:B9=18;C4:E4=11;F5:F7=23;H4:I4=12;A5:B5=13;D5:F5=22;G6:G9=30;H5:I5=4;A6:B6=7;C7:C9=7;E6:G6=22;H7:H9=23;A7:C7=12;D8:D9=12;E7:H7=30;I8:I9=6;A8:E8=20;G8:I8=17;B9:D9=19;G9:I9=16">9x9 #1</option>
+              <option value="B1:B9=45;C1:C2=8;E1:E4=13;F1:F2=7;G1:G2=5;H1:H9=45;A2:A4=13;B1:C1=12;E1:H1=17;I2:I4=9;A2:C2=7;D3:D5=14;E2:I2=19;A3:B3=12;D3:E3=3;G4:G5=6;H3:I3=12;A4:B4=7;C5:C6=8;D4:E4=10;F5:F7=21;G4:I4=7;A6:A8=24;B5:D5=9;E6:E9=28;F5:H5=9;I6:I8=19;A6:C6=23;E6:F6=16;H6:I6=5;A7:B7=10;C8:C9=7;D8:D9=14;E7:F7=15;G8:G9=15;H7:I7=14;A8:E8=35;G8:I8=21;B9:E9=22;G9:H9=16">9x9 #2</option>
+              <option value="B1:B6=37;C1:C2=5;D1:D3=17;E1:E4=12;H1:H2=16;I1:I2=10;A2:A5=27;G2:G6=32;F3:F5=23;C4:C8=31;H4:H9=30;D5:D7=8;I5:I8=29;E6:E9=10;F7:F9=22;A8:A9=8;B8:B9=15;G8:G9=17;B1:E1=22;H1:I1=11;A2:E2=16;G2:I2=23;A3:B3=16;D3:G3=12;A4:C4=23;E4:H4=27;A5:D5=29;F5:I5=29;B6:E6=12;G6:I6=24;C7:F7=13;H7:I7=12;A8:C8=23;E8:I8=24;A9:B9=8;E9:H9=25">9x9 default</option>
+            </select>
+            <input type="button" id="loadButton" className="pushButton" value=" Load "
+              onClick={(e) => this.loadFromClues(document.getElementById('clueSelect').value)}></input>
+            <input type="checkbox" className="optionButton" id="editMode" checked={this.state.isEditing}/>
+            <label htmlFor="editMode">Edit Puzzle</label>
+          </div>
+        </div>
+        <div>
+
         </div>
       </div>
     );
